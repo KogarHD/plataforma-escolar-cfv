@@ -1,26 +1,131 @@
+// C:\Users\edgar\Proyectos\plataforma-escolar-cfv\app\login\page.tsx
+"use client";
+
+import Image from "next/image";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
+
+type Role = "admin" | "teacher" | "student";
+
 export default function LoginPage() {
+  const router = useRouter();
+
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const toEmail = (u: string) => `${u.trim().toLowerCase()}@cfv.local`;
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    const email = toEmail(username);
+
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (signInError) {
+      setLoading(false);
+      setError("Usuario o contraseña incorrectos.");
+      return;
+    }
+
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    const user = userData.user;
+
+    if (userError || !user) {
+      setLoading(false);
+      setError("No se pudo obtener tu sesión. Intenta de nuevo.");
+      return;
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profileError || !profile?.role) {
+      console.error("profileError:", profileError);
+      setLoading(false);
+      setError("No se pudo leer tu rol. Contacta al admin.");
+      return;
+    }
+
+    const role = profile.role as Role;
+
+    setLoading(false);
+
+    if (role === "admin") router.replace("/admin");
+    else if (role === "teacher") router.replace("/teacher");
+    else router.replace("/student");
+  }
+
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
-      <div className="w-full max-w-sm rounded-xl border p-6">
-        <h1 className="text-xl font-semibold">Plataforma Escolar CFV</h1>
-        <p className="text-sm text-neutral-500 mt-1">Inicio de sesión</p>
+    <div className="min-h-screen bg-white text-slate-900 flex items-center justify-center p-6">
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col items-center">
+          <Image
+            src="/brand/cfv-logo.png"
+            alt="Centro de Estudios Superiores Felipe Villanueva"
+            width={220}
+            height={220}
+            priority
+            className="h-auto w-[220px]"
+          />
 
-        <div className="mt-6 space-y-3">
-          <label className="block">
-            <span className="text-sm">Usuario</span>
-            <input className="mt-1 w-full rounded-md border p-2" placeholder="usuario" />
-          </label>
-
-          <label className="block">
-            <span className="text-sm">Contraseña</span>
-            <input className="mt-1 w-full rounded-md border p-2" type="password" placeholder="••••••••" />
-          </label>
-
-          <button className="w-full rounded-md bg-black text-white py-2">
-            Entrar
-          </button>
+          <h1 className="mt-4 text-2xl font-bold text-center">
+            Plataforma Escolar CFV
+          </h1>
+          <p className="text-sm text-slate-600 mt-1 text-center">
+            Inicia sesión con tu usuario y contraseña.
+          </p>
         </div>
+
+        <form onSubmit={onSubmit} className="mt-6 space-y-4">
+          <div className="space-y-1">
+            <label className="text-sm text-slate-700">Usuario</label>
+            <input
+              className="w-full rounded-lg bg-white border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-teal-600/30"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="admin / profe1 / alumno1"
+              autoComplete="username"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-slate-700">Contraseña</label>
+            <input
+              className="w-full rounded-lg bg-white border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-teal-600/30"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              type="password"
+              autoComplete="current-password"
+            />
+          </div>
+
+          {error && <div className="text-sm text-red-600">{error}</div>}
+
+          <button
+            disabled={loading}
+            className="w-full rounded-lg bg-teal-700 text-white font-semibold py-2 hover:bg-teal-800 disabled:opacity-60"
+          >
+            {loading ? "Entrando..." : "Entrar"}
+          </button>
+
+          <p className="text-xs text-slate-500">
+            * Internamente usamos usuarios @cfv.local (solo para demo).
+          </p>
+        </form>
       </div>
-    </main>
+    </div>
   );
 }
