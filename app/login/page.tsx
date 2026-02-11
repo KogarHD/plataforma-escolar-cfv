@@ -1,5 +1,7 @@
+// C:\Users\edgar\Proyectos\plataforma-escolar-cfv\app\login\page.tsx
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -35,39 +37,22 @@ export default function LoginPage() {
     }
 
     const { data: userData, error: userError } = await supabase.auth.getUser();
-const user = userData.user;
+    const user = userData.user;
 
-if (userError || !user) {
-  setLoading(false);
-  setError("No se pudo obtener tu sesión. Intenta de nuevo.");
-  return;
-}
+    if (userError || !user) {
+      setLoading(false);
+      setError("No se pudo obtener tu sesión. Intenta de nuevo.");
+      return;
+    }
 
-const { data: profile, error: profileError } = await supabase
-  .from("profiles")
-  .select("role")
-  .eq("id", user.id)
-  .maybeSingle();
-
-if (profileError) {
-  console.log("profileError:", profileError);
-}
-if (!profile?.role) {
-  console.log("profile:", profile);
-  setLoading(false);
-  setError("No se pudo leer tu rol. Contacta al admin.");
-  return;
-}
-
-if (profileError || !profile?.role) {
-  console.error("profileError:", profileError);
-  setLoading(false);
-  setError("No se pudo leer tu rol. Contacta al admin.");
-  return;
-}
-
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
 
     if (profileError || !profile?.role) {
+      console.error("profileError:", profileError);
       setLoading(false);
       setError("No se pudo leer tu rol. Contacta al admin.");
       return;
@@ -83,18 +68,31 @@ if (profileError || !profile?.role) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6">
-      <div className="w-full max-w-md rounded-xl border border-white/10 bg-black/20 p-6">
-        <h1 className="text-2xl font-bold">Plataforma Escolar CFV</h1>
-        <p className="text-sm text-white/70 mt-1">
-          Inicia sesión con tu usuario y contraseña.
-        </p>
+    <div className="min-h-screen bg-white text-slate-900 flex items-center justify-center p-6">
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col items-center">
+          <Image
+            src="/brand/cfv-logo.png"
+            alt="Centro de Estudios Superiores Felipe Villanueva"
+            width={220}
+            height={220}
+            priority
+            className="h-auto w-[220px]"
+          />
+
+          <h1 className="mt-4 text-2xl font-bold text-center">
+            Plataforma Escolar CFV
+          </h1>
+          <p className="text-sm text-slate-600 mt-1 text-center">
+            Inicia sesión con tu usuario y contraseña.
+          </p>
+        </div>
 
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
           <div className="space-y-1">
-            <label className="text-sm text-white/80">Usuario</label>
+            <label className="text-sm text-slate-700">Usuario</label>
             <input
-              className="w-full rounded-lg bg-black/30 border border-white/10 px-3 py-2 outline-none"
+              className="w-full rounded-lg bg-white border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-teal-600/30"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="admin / profe1 / alumno1"
@@ -103,9 +101,9 @@ if (profileError || !profile?.role) {
           </div>
 
           <div className="space-y-1">
-            <label className="text-sm text-white/80">Contraseña</label>
+            <label className="text-sm text-slate-700">Contraseña</label>
             <input
-              className="w-full rounded-lg bg-black/30 border border-white/10 px-3 py-2 outline-none"
+              className="w-full rounded-lg bg-white border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-teal-600/30"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
@@ -114,16 +112,16 @@ if (profileError || !profile?.role) {
             />
           </div>
 
-          {error && <div className="text-sm text-red-400">{error}</div>}
+          {error && <div className="text-sm text-red-600">{error}</div>}
 
           <button
             disabled={loading}
-            className="w-full rounded-lg bg-white text-black font-semibold py-2 disabled:opacity-60"
+            className="w-full rounded-lg bg-teal-700 text-white font-semibold py-2 hover:bg-teal-800 disabled:opacity-60"
           >
             {loading ? "Entrando..." : "Entrar"}
           </button>
 
-          <p className="text-xs text-white/50">
+          <p className="text-xs text-slate-500">
             * Internamente usamos usuarios @cfv.local (solo para demo).
           </p>
         </form>
