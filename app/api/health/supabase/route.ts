@@ -17,7 +17,7 @@ export async function GET() {
     cache: "no-store",
   });
 
-  let data: any = null;
+  let data: unknown = null;
   try {
     data = await res.json();
   } catch {
