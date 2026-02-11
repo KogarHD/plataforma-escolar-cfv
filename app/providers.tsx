@@ -1,18 +1,15 @@
+
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import type { ReactNode } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import type { Session } from "@supabase/supabase-js";
 
-export default function Providers({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-
+export default function Providers({ children }: { children: ReactNode }) {
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    supabase.auth.getSession();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-    });
+    const { data: sub } = supabase.auth.onAuthStateChange(() => {});
 
     return () => {
       sub.subscription.unsubscribe();
