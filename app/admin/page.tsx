@@ -1,8 +1,14 @@
-export default function AdminHome() {
+import AdminDashboardClient from './ui'
+
+export default function Page() {
   return (
-    <main className="p-6">
-      <h1 className="text-2xl font-semibold">Administrador</h1>
-      <p className="text-neutral-500 mt-2">Placeholder del portal Admin.</p>
-    </main>
-  );
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Inicio</h1>
+        <p className="text-sm text-muted-foreground">Resumen general de la plataforma.</p>
+      </div>
+
+      <AdminDashboardClient />
+    </div>
+  )
 }

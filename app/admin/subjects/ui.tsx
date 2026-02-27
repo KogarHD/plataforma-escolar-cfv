@@ -5,15 +5,15 @@ import { createClient } from '@supabase/supabase-js'
 
 type Program = { id: string; name: string }
 type Term = { id: string; program_id: string; number: number; name: string }
-type Group = {
+type Subject = {
   id: string
   program_id: string
-  term_id: string
-  code: string
-  modality: 'online' | 'presencial'
+  term_id: string | null
+  name: string
+  code: string | null
+  is_active: boolean
   created_at: string
 }
-type Modality = Group['modality']
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,24 +24,25 @@ function termLabel(t: Term) {
   return `C${t.number} — ${t.name}`
 }
 
-export default function GroupsClient() {
+export default function SubjectsClient() {
   const [loading, setLoading] = React.useState(true)
-  const [error, setError] = React.useState<string>('')
+  const [error, setError] = React.useState('')
 
   const [programs, setPrograms] = React.useState<Program[]>([])
   const [terms, setTerms] = React.useState<Term[]>([])
-  const [groups, setGroups] = React.useState<Group[]>([])
+  const [subjects, setSubjects] = React.useState<Subject[]>([])
 
   const programsById = React.useMemo(() => new Map(programs.map((p) => [p.id, p])), [programs])
   const termsById = React.useMemo(() => new Map(terms.map((t) => [t.id, t])), [terms])
 
   const [mode, setMode] = React.useState<'create' | 'edit' | null>(null)
-  const [editingId, setEditingId] = React.useState<string>('')
+  const [editingId, setEditingId] = React.useState('')
 
   const [programId, setProgramId] = React.useState('')
-  const [termId, setTermId] = React.useState('')
+  const [termId, setTermId] = React.useState<string>('') // '' => null
+  const [name, setName] = React.useState('')
   const [code, setCode] = React.useState('')
-  const [modality, setModality] = React.useState<Modality>('presencial')
+  const [isActive, setIsActive] = React.useState(true)
 
   const termsForProgram = React.useMemo(() => {
     if (!programId) return []
@@ -59,21 +60,21 @@ export default function GroupsClient() {
       return
     }
 
-    const [pRes, tRes, gRes] = await Promise.all([
+    const [pRes, tRes, sRes] = await Promise.all([
       supabase.from('programs').select('id,name').order('name', { ascending: true }),
       supabase.from('terms').select('id,program_id,number,name').order('number', { ascending: true }),
       supabase
-        .from('groups')
-        .select('id,program_id,term_id,code,modality,created_at')
+        .from('subjects')
+        .select('id,program_id,term_id,name,code,is_active,created_at')
         .order('created_at', { ascending: false }),
     ])
 
-    const firstErr = pRes.error ?? tRes.error ?? gRes.error
+    const firstErr = pRes.error ?? tRes.error ?? sRes.error
     if (firstErr) setError(firstErr.message)
 
     setPrograms((pRes.data ?? []) as Program[])
     setTerms((tRes.data ?? []) as Term[])
-    setGroups((gRes.data ?? []) as Group[])
+    setSubjects((sRes.data ?? []) as Subject[])
 
     setLoading(false)
   }, [])
@@ -85,8 +86,9 @@ export default function GroupsClient() {
   function resetForm() {
     setProgramId('')
     setTermId('')
+    setName('')
     setCode('')
-    setModality('presencial')
+    setIsActive(true)
     setEditingId('')
   }
 
@@ -95,12 +97,13 @@ export default function GroupsClient() {
     setMode('create')
   }
 
-  function openEdit(g: Group) {
-    setEditingId(g.id)
-    setProgramId(g.program_id)
-    setTermId(g.term_id)
-    setCode(g.code)
-    setModality(g.modality)
+  function openEdit(s: Subject) {
+    setEditingId(s.id)
+    setProgramId(s.program_id)
+    setTermId(s.term_id ?? '')
+    setName(s.name)
+    setCode(s.code ?? '')
+    setIsActive(!!s.is_active)
     setMode('edit')
   }
 
@@ -110,30 +113,24 @@ export default function GroupsClient() {
   }
 
   async function onSubmit() {
-    if (!programId || !termId || !code.trim()) {
-      alert('Completa Carrera, Cuatrimestre y Grupo.')
+    if (!programId || !name.trim()) {
+      alert('Completa Carrera y Nombre de materia.')
       return
     }
 
+    const payload = {
+      program_id: programId,
+      term_id: termId ? termId : null,
+      name: name.trim(),
+      code: code.trim() ? code.trim() : null,
+      is_active: isActive,
+    }
+
     if (mode === 'create') {
-      const { error } = await supabase.from('groups').insert({
-        program_id: programId,
-        term_id: termId,
-        code: code.trim(),
-        modality,
-      })
+      const { error } = await supabase.from('subjects').insert(payload)
       if (error) return alert(error.message)
     } else if (mode === 'edit') {
-      const { error } = await supabase
-        .from('groups')
-        .update({
-          program_id: programId,
-          term_id: termId,
-          code: code.trim(),
-          modality,
-        })
-        .eq('id', editingId)
-
+      const { error } = await supabase.from('subjects').update(payload).eq('id', editingId)
       if (error) return alert(error.message)
     }
 
@@ -142,12 +139,10 @@ export default function GroupsClient() {
   }
 
   async function onDelete(id: string) {
-    const ok = confirm('¿Eliminar este grupo?')
+    const ok = confirm('¿Eliminar esta materia?')
     if (!ok) return
-
-    const { error } = await supabase.from('groups').delete().eq('id', id)
+    const { error } = await supabase.from('subjects').delete().eq('id', id)
     if (error) return alert(error.message)
-
     await loadAll()
   }
 
@@ -159,7 +154,7 @@ export default function GroupsClient() {
           onClick={openCreate}
           disabled={loading}
         >
-          Nuevo grupo
+          Nueva materia
         </button>
       </div>
 
@@ -176,41 +171,43 @@ export default function GroupsClient() {
             <tr className="text-left">
               <th className="p-3">Carrera</th>
               <th className="p-3">Cuatrimestre</th>
-              <th className="p-3">Grupo</th>
-              <th className="p-3">Modalidad</th>
+              <th className="p-3">Materia</th>
+              <th className="p-3">Clave</th>
+              <th className="p-3">Activa</th>
               <th className="p-3 text-right">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td className="p-3 text-muted-foreground" colSpan={5}>
+                <td className="p-3 text-muted-foreground" colSpan={6}>
                   Cargando…
                 </td>
               </tr>
-            ) : groups.length === 0 ? (
+            ) : subjects.length === 0 ? (
               <tr>
-                <td className="p-3 text-muted-foreground" colSpan={5}>
-                  No hay grupos todavía.
+                <td className="p-3 text-muted-foreground" colSpan={6}>
+                  No hay materias todavía.
                 </td>
               </tr>
             ) : (
-              groups.map((g) => {
-                const p = programsById.get(g.program_id)
-                const t = termsById.get(g.term_id)
+              subjects.map((s) => {
+                const p = programsById.get(s.program_id)
+                const t = s.term_id ? termsById.get(s.term_id) : null
                 return (
-                  <tr key={g.id} className="border-b last:border-b-0">
-                    <td className="p-3">{p?.name ?? g.program_id}</td>
-                    <td className="p-3">{t ? termLabel(t) : g.term_id}</td>
-                    <td className="p-3 font-medium">{g.code}</td>
-                    <td className="p-3 capitalize">{g.modality}</td>
+                  <tr key={s.id} className="border-b last:border-b-0">
+                    <td className="p-3">{p?.name ?? s.program_id}</td>
+                    <td className="p-3">{t ? termLabel(t) : '—'}</td>
+                    <td className="p-3 font-medium">{s.name}</td>
+                    <td className="p-3">{s.code ?? '—'}</td>
+                    <td className="p-3">{s.is_active ? 'Sí' : 'No'}</td>
                     <td className="p-3 text-right space-x-2">
-                      <button className="rounded-md border px-3 py-1 text-xs font-medium" onClick={() => openEdit(g)}>
+                      <button className="rounded-md border px-3 py-1 text-xs font-medium" onClick={() => openEdit(s)}>
                         Editar
                       </button>
                       <button
                         className="rounded-md border border-red-600 px-3 py-1 text-xs font-medium text-red-600"
-                        onClick={() => onDelete(g.id)}
+                        onClick={() => onDelete(s.id)}
                       >
                         Eliminar
                       </button>
@@ -227,8 +224,8 @@ export default function GroupsClient() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-lg rounded-lg bg-background p-4 shadow-lg">
             <div className="mb-4">
-              <h2 className="text-lg font-semibold">{mode === 'create' ? 'Nuevo grupo' : 'Editar grupo'}</h2>
-              <p className="text-sm text-muted-foreground">Carrera + Cuatrimestre + Grupo + Modalidad</p>
+              <h2 className="text-lg font-semibold">{mode === 'create' ? 'Nueva materia' : 'Editar materia'}</h2>
+              <p className="text-sm text-muted-foreground">Carrera + (Cuatrimestre opcional) + Materia</p>
             </div>
 
             <div className="grid gap-3">
@@ -252,14 +249,14 @@ export default function GroupsClient() {
               </div>
 
               <div className="grid gap-1">
-                <label className="text-sm font-medium">Cuatrimestre</label>
+                <label className="text-sm font-medium">Cuatrimestre (opcional)</label>
                 <select
                   className="h-10 rounded-md border bg-background px-3 text-sm disabled:opacity-50"
                   value={termId}
                   onChange={(e) => setTermId(e.target.value)}
                   disabled={!programId}
                 >
-                  <option value="">{programId ? 'Selecciona un cuatrimestre' : 'Primero elige carrera'}</option>
+                  <option value="">{programId ? 'Sin cuatrimestre' : 'Primero elige carrera'}</option>
                   {termsForProgram.map((t) => (
                     <option key={t.id} value={t.id}>
                       {termLabel(t)}
@@ -269,25 +266,35 @@ export default function GroupsClient() {
               </div>
 
               <div className="grid gap-1">
-                <label className="text-sm font-medium">Grupo</label>
+                <label className="text-sm font-medium">Materia</label>
                 <input
                   className="h-10 rounded-md border bg-background px-3 text-sm"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  placeholder="Ej: 1A, 2B, A..."
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Ej: Programación Web"
                 />
               </div>
 
               <div className="grid gap-1">
-                <label className="text-sm font-medium">Modalidad</label>
-                <select
+                <label className="text-sm font-medium">Clave (opcional)</label>
+                <input
                   className="h-10 rounded-md border bg-background px-3 text-sm"
-                  value={modality}
-                  onChange={(e) => setModality(e.target.value as Modality)}
-                >
-                  <option value="online">online</option>
-                  <option value="presencial">presencial</option>
-                </select>
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="Ej: PW-101"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  id="isActive"
+                  type="checkbox"
+                  checked={isActive}
+                  onChange={(e) => setIsActive(e.target.checked)}
+                />
+                <label htmlFor="isActive" className="text-sm">
+                  Activa
+                </label>
               </div>
             </div>
 
@@ -298,7 +305,7 @@ export default function GroupsClient() {
               <button
                 className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
                 onClick={onSubmit}
-                disabled={!programId || !termId || !code.trim()}
+                disabled={!programId || !name.trim()}
               >
                 {mode === 'create' ? 'Crear' : 'Guardar'}
               </button>
