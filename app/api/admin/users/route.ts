@@ -48,14 +48,40 @@ export async function GET(req: Request) {
   if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: 403 })
 
   const svc = supabaseService()
-  try {
-    const { data, error } = await svc
-      .from('profiles')
-      .select('id,role,username,email,created_at')
-      .order('created_at', { ascending: false })
 
-    if (error) throw new Error(error.message)
-    return NextResponse.json({ users: data ?? [] })
+  try {
+    // 1) Usuarios desde Auth (email vive aquí)
+    const { data: usersData, error: usersErr } = await svc.auth.admin.listUsers()
+    if (usersErr) throw new Error(usersErr.message)
+
+    const users = usersData?.users ?? []
+    const ids = users.map((u) => u.id)
+
+    // 2) Roles / username desde profiles
+    const { data: profiles, error: profErr } = await svc
+      .from('profiles')
+      .select('id, role, username, created_at')
+      .in('id', ids)
+
+    if (profErr) throw new Error(profErr.message)
+
+    const profById = new Map((profiles ?? []).map((p) => [p.id, p]))
+
+    // 3) Merge final
+    const result = users
+      .map((u) => {
+        const p = profById.get(u.id)
+        return {
+          id: u.id,
+          email: u.email ?? null,
+          username: p?.username ?? (u.user_metadata?.username as string | undefined) ?? null,
+          role: (p?.role as Role | undefined) ?? null,
+          created_at: (p?.created_at as string | undefined) ?? (u.created_at as string | undefined) ?? null,
+        }
+      })
+      .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
+
+    return NextResponse.json({ users: result })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Error' }, { status: 500 })
   }
@@ -65,19 +91,48 @@ export async function PATCH(req: Request) {
   const gate = await requireAdmin(req)
   if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: 403 })
 
-  const body = (await req.json()) as { userId?: string; role?: Role }
-  if (!body.userId || !body.role) return NextResponse.json({ error: 'Faltan campos' }, { status: 400 })
+ const body = (await req.json()) as { userId?: string; role?: Role; username?: string }
 
-  if (!['admin', 'teacher', 'student'].includes(body.role)) {
+const userId = body.userId?.trim()
+if (!userId) {
+  return NextResponse.json({ error: 'Falta userId' }, { status: 400 })
+}
+
+const updates: { role?: Role; username?: string } = {}
+
+if (body.role) {
+  const role = body.role
+  if (!['admin', 'teacher', 'student'].includes(role)) {
     return NextResponse.json({ error: 'Rol inválido' }, { status: 400 })
   }
-
-  const svc = supabaseService()
-  try {
-    const { error } = await svc.from('profiles').update({ role: body.role }).eq('id', body.userId)
-    if (error) throw new Error(error.message)
-    return NextResponse.json({ ok: true })
-  } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : 'Error' }, { status: 500 })
-  }
+  updates.role = role as Role
 }
+
+if (typeof body.username === 'string') {
+  const uname = body.username.trim()
+  if (!uname) {
+    return NextResponse.json({ error: 'Usuario vacío' }, { status: 400 })
+  }
+  if (!/^[a-zA-Z0-9._-]{3,30}$/.test(uname)) {
+    return NextResponse.json(
+      { error: 'Usuario inválido (3-30, letras/números/._-)' },
+      { status: 400 }
+    )
+  }
+  updates.username = uname
+}
+
+if (Object.keys(updates).length === 0) {
+  return NextResponse.json({ error: 'Nada que actualizar' }, { status: 400 })
+}
+const svc = supabaseService()
+const { error: updErr } = await svc
+  .from('profiles')
+  .update(updates)
+  .eq('id', userId)
+
+if (updErr) {
+  return NextResponse.json({ error: updErr.message }, { status: 400 })
+}
+
+return NextResponse.json({ ok: true })}

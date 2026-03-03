@@ -1,3 +1,4 @@
+// C:\Users\KOGARPC\Proyectos\plataforma-escolar-cfv\app\admin\users\ui.tsx
 'use client'
 
 import * as React from 'react'
@@ -26,6 +27,19 @@ async function getAccessToken() {
   return token
 }
 
+const roleLabel: Record<Role, string> = {
+  student: 'Estudiante',
+  teacher: 'Profesor',
+  admin: 'Administrador',
+}
+
+function validateUsername(u: string) {
+  const v = u.trim()
+  if (!v) return 'El usuario está vacío.'
+  if (!/^[a-zA-Z0-9._-]{3,30}$/.test(v)) return 'Usuario inválido (3-30, letras/números/._-)'
+  return ''
+}
+
 export default function UsersClient() {
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState('')
@@ -35,6 +49,11 @@ export default function UsersClient() {
   const [username, setUsername] = React.useState('')
   const [password, setPassword] = React.useState('')
   const [role, setRole] = React.useState<Role>('student')
+
+  const [editOpen, setEditOpen] = React.useState(false)
+  const [editUserId, setEditUserId] = React.useState<string>('')
+  const [editUsername, setEditUsername] = React.useState('')
+  const [editRole, setEditRole] = React.useState<Role>('student')
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -66,8 +85,7 @@ export default function UsersClient() {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+          Authorization: `Bearer ${token}` },
         body: JSON.stringify({ userId, role: newRole }),
       })
       const data = (await res.json()) as { error?: string }
@@ -78,9 +96,76 @@ export default function UsersClient() {
     }
   }
 
+  async function onDelete(userId: string, label: string) {
+    const ok = confirm(`¿Eliminar ${label}? Esta acción no se puede deshacer.`)
+    if (!ok) return
+
+    try {
+      const token = await getAccessToken()
+      const res = await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userId }),
+      })
+      const data = (await res.json()) as { error?: string }
+      if (!res.ok) throw new Error(data.error || 'Error eliminando usuario')
+      await load()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Error eliminando usuario')
+    }
+  }
+
+  function openEdit(u: ProfileRow) {
+    setEditUserId(u.id)
+    setEditUsername(u.username ?? '')
+    setEditRole(u.role)
+    setEditOpen(true)
+  }
+
+  async function onSaveEdit() {
+    const msg = validateUsername(editUsername)
+    if (msg) {
+      alert(msg)
+      return
+    }
+
+    try {
+      const token = await getAccessToken()
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          userId: editUserId,
+          username: editUsername.trim(),
+          role: editRole,
+        }),
+      })
+      const data = (await res.json()) as { error?: string }
+      if (!res.ok) throw new Error(data.error || 'Error guardando cambios')
+
+      setEditOpen(false)
+      setEditUserId('')
+      setEditUsername('')
+      setEditRole('student')
+      await load()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Error guardando cambios')
+    }
+  }
+
   async function onCreate() {
     if (!username.trim() || !password.trim()) {
-      alert('Completa username y password.')
+      alert('Completa usuario y contraseña.')
+      return
+    }
+
+    const msg = validateUsername(username)
+    if (msg) {
+      alert(msg)
       return
     }
 
@@ -90,8 +175,7 @@ export default function UsersClient() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+          Authorization: `Bearer ${token}` },
         body: JSON.stringify({ username: username.trim(), password: password.trim(), role }),
       })
       const data = (await res.json()) as { error?: string }
@@ -110,7 +194,11 @@ export default function UsersClient() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
-        <button className="rounded-md border px-4 py-2 text-sm font-medium" onClick={() => void load()} disabled={loading}>
+        <button
+          className="rounded-md border px-4 py-2 text-sm font-medium"
+          onClick={() => void load()}
+          disabled={loading}
+        >
           Refrescar
         </button>
         <button
@@ -133,8 +221,8 @@ export default function UsersClient() {
         <table className="w-full text-sm">
           <thead className="border-b bg-muted/40">
             <tr className="text-left">
-              <th className="p-3">Username</th>
-              <th className="p-3">Email</th>
+              <th className="p-3">Usuario</th>
+              <th className="p-3">Correo</th>
               <th className="p-3">Rol</th>
               <th className="p-3">Creado</th>
               <th className="p-3 text-right">Acciones</th>
@@ -164,13 +252,32 @@ export default function UsersClient() {
                       value={u.role}
                       onChange={(e) => void onChangeRole(u.id, e.target.value as Role)}
                     >
-                      <option value="admin">admin</option>
-                      <option value="teacher">teacher</option>
-                      <option value="student">student</option>
+                      <option value="student">{roleLabel.student}</option>
+                      <option value="teacher">{roleLabel.teacher}</option>
+                      <option value="admin">{roleLabel.admin}</option>
                     </select>
                   </td>
-                  <td className="p-3">{u.created_at ? new Date(u.created_at).toLocaleString() : '—'}</td>
-                  <td className="p-3 text-right text-xs text-muted-foreground">—</td>
+                  <td className="p-3">
+                    {u.created_at ? new Date(u.created_at).toLocaleString() : '—'}
+                  </td>
+                  <td className="p-3 text-right">
+                    <div className="inline-flex gap-2">
+                      <button
+                        className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-muted"
+                        onClick={() => openEdit(u)}
+                        disabled={loading}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-500/15"
+                        onClick={() => void onDelete(u.id, u.email ?? u.username ?? 'este usuario')}
+                        disabled={loading}
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))
             )}
@@ -188,7 +295,7 @@ export default function UsersClient() {
 
             <div className="grid gap-3">
               <div className="grid gap-1">
-                <label className="text-sm font-medium">Username</label>
+                <label className="text-sm font-medium">Usuario</label>
                 <input
                   className="h-10 rounded-md border bg-background px-3 text-sm"
                   value={username}
@@ -198,7 +305,7 @@ export default function UsersClient() {
               </div>
 
               <div className="grid gap-1">
-                <label className="text-sm font-medium">Password</label>
+                <label className="text-sm font-medium">Contraseña</label>
                 <input
                   className="h-10 rounded-md border bg-background px-3 text-sm"
                   value={password}
@@ -215,9 +322,9 @@ export default function UsersClient() {
                   value={role}
                   onChange={(e) => setRole(e.target.value as Role)}
                 >
-                  <option value="student">student</option>
-                  <option value="teacher">teacher</option>
-                  <option value="admin">admin</option>
+                  <option value="student">{roleLabel.student}</option>
+                  <option value="teacher">{roleLabel.teacher}</option>
+                  <option value="admin">{roleLabel.admin}</option>
                 </select>
               </div>
             </div>
@@ -232,6 +339,58 @@ export default function UsersClient() {
                 disabled={!username.trim() || !password.trim()}
               >
                 Crear
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-lg bg-background p-4 shadow-lg">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold">Editar usuario</h2>
+              <p className="text-sm text-muted-foreground">Edita usuario (profile) y rol.</p>
+            </div>
+
+            <div className="grid gap-3">
+              <div className="grid gap-1">
+                <label className="text-sm font-medium">Usuario</label>
+                <input
+                  className="h-10 rounded-md border bg-background px-3 text-sm"
+                  value={editUsername}
+                  onChange={(e) => setEditUsername(e.target.value)}
+                  placeholder="Ej: alumno2"
+                />
+              </div>
+
+              <div className="grid gap-1">
+                <label className="text-sm font-medium">Rol</label>
+                <select
+                  className="h-10 rounded-md border bg-background px-3 text-sm"
+                  value={editRole}
+                  onChange={(e) => setEditRole(e.target.value as Role)}
+                >
+                  <option value="student">{roleLabel.student}</option>
+                  <option value="teacher">{roleLabel.teacher}</option>
+                  <option value="admin">{roleLabel.admin}</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                className="rounded-md border px-4 py-2 text-sm font-medium"
+                onClick={() => setEditOpen(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                onClick={() => void onSaveEdit()}
+                disabled={!editUsername.trim()}
+              >
+                Guardar
               </button>
             </div>
           </div>
