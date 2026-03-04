@@ -13,6 +13,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           { label: "Cuatrimestres", href: "/admin/terms" },
           { label: "Grupos", href: "/admin/groups" },
           { label: "Materias", href: "/admin/subjects" },
+          { label: "Asignaciones", href: "/admin/assignments" },
         ]}
       >
         {children}
