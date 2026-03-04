@@ -75,13 +75,24 @@ export async function GET(req: Request) {
 
     if (gErr) throw new Error(gErr.message)
 
-    const groups: GroupRow[] = (groupsRaw ?? []).map((g: any) => ({
-      id: g.id,
-      code: g.code ?? null,
-      modality: g.modality ?? null,
-      program_name: g.programs?.name ?? null,
-      term_name: g.terms?.name ?? null,
-    }))
+    type GroupJoinRow = {
+  id: string
+  code?: string | null
+  modality?: string | null
+  programs?: { name?: string | null } | null
+  terms?: { name?: string | null } | null
+}
+
+const groups: GroupRow[] = (groupsRaw ?? []).map((g) => {
+  const row = g as GroupJoinRow
+  return {
+    id: row.id,
+    code: row.code ?? null,
+    modality: row.modality ?? null,
+    program_name: row.programs?.name ?? null,
+    term_name: row.terms?.name ?? null,
+  }
+})
 
     // Subjects: por ahora listamos todas (en UI filtraremos según group seleccionado)
     const { data: subjects, error: sErr } = await svc
@@ -100,7 +111,7 @@ export async function GET(req: Request) {
         .eq('group_id', groupId)
 
       if (aErr) throw new Error(aErr.message)
-      assignedSubjectIds = (assigned ?? []).map((r: any) => r.subject_id)
+      assignedSubjectIds = (assigned ?? []).map((r) => (r as { subject_id: string }).subject_id)
     }
 
     return NextResponse.json({ groups, subjects: (subjects ?? []) as SubjectRow[], assignedSubjectIds })
