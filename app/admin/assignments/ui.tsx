@@ -31,6 +31,17 @@ type AssignmentRow = {
   teacher_id: string
 }
 
+type StudentRow = {
+  id: string
+  username: string | null
+  email: string | null
+}
+
+type EnrollmentRow = {
+  group_id: string
+  student_id: string
+}
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -58,6 +69,10 @@ function teacherLabel(t: TeacherRow) {
   return t.username ?? t.email ?? 'Profesor'
 }
 
+function studentLabel(s: StudentRow) {
+  return s.username ?? s.email ?? 'Alumno'
+}
+
 export default function AssignmentsClient() {
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState('')
@@ -67,8 +82,11 @@ export default function AssignmentsClient() {
   const [assignedIds, setAssignedIds] = React.useState<string[]>([])
 
   const [teachers, setTeachers] = React.useState<TeacherRow[]>([])
-  const [teacherAssignments, setTeacherAssignments] = React.useState<AssignmentRow[]>([])
   const [teacherSelectionBySubject, setTeacherSelectionBySubject] = React.useState<Record<string, string>>({})
+
+  const [students, setStudents] = React.useState<StudentRow[]>([])
+  const [enrollments, setEnrollments] = React.useState<EnrollmentRow[]>([])
+  const [studentToEnroll, setStudentToEnroll] = React.useState<string>('')
 
   const [groupId, setGroupId] = React.useState<string>('')
   const [subjectToAdd, setSubjectToAdd] = React.useState<string>('')
@@ -82,13 +100,15 @@ export default function AssignmentsClient() {
         cache: 'no-store',
         headers: { Authorization: `Bearer ${token}` },
       })
+
       const data = (await res.json()) as {
         groups?: GroupRow[]
         subjects?: SubjectRow[]
         assignedSubjectIds?: string[]
         error?: string
       }
-      if (!res.ok) throw new Error(data.error || 'Error cargando datos')
+
+      if (!res.ok) throw new Error(data.error || 'Error cargando datos base')
 
       setGroups(data.groups ?? [])
       setSubjects(data.subjects ?? [])
@@ -98,35 +118,34 @@ export default function AssignmentsClient() {
         setGroupId(data.groups![0].id)
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error cargando datos')
+      setError(e instanceof Error ? e.message : 'Error cargando datos base')
     } finally {
       setLoading(false)
     }
   }, [groupId])
 
   const loadAssignedSubjects = React.useCallback(async (gid: string) => {
-    setLoading(true)
-    setError('')
     try {
       const token = await getAccessToken()
       const res = await fetch(`/api/admin/groups-subjects?groupId=${encodeURIComponent(gid)}`, {
         cache: 'no-store',
         headers: { Authorization: `Bearer ${token}` },
       })
+
       const data = (await res.json()) as {
         groups?: GroupRow[]
         subjects?: SubjectRow[]
         assignedSubjectIds?: string[]
         error?: string
       }
-      if (!res.ok) throw new Error(data.error || 'Error cargando asignaciones de materias')
+
+      if (!res.ok) throw new Error(data.error || 'Error cargando materias del grupo')
+
       setGroups(data.groups ?? [])
       setSubjects(data.subjects ?? [])
       setAssignedIds(data.assignedSubjectIds ?? [])
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error cargando asignaciones de materias')
-    } finally {
-      setLoading(false)
+      setError(e instanceof Error ? e.message : 'Error cargando materias del grupo')
     }
   }, [])
 
@@ -137,18 +156,19 @@ export default function AssignmentsClient() {
         cache: 'no-store',
         headers: { Authorization: `Bearer ${token}` },
       })
+
       const data = (await res.json()) as {
         teachers?: TeacherRow[]
         assignments?: AssignmentRow[]
         error?: string
       }
+
       if (!res.ok) throw new Error(data.error || 'Error cargando profesores')
 
       const teacherList = data.teachers ?? []
       const assignmentList = data.assignments ?? []
 
       setTeachers(teacherList)
-      setTeacherAssignments(assignmentList)
 
       const selectionMap: Record<string, string> = {}
       for (const assignment of assignmentList) {
@@ -160,6 +180,29 @@ export default function AssignmentsClient() {
     }
   }, [])
 
+  const loadEnrollments = React.useCallback(async (gid: string) => {
+    try {
+      const token = await getAccessToken()
+      const res = await fetch(`/api/admin/enrollments?groupId=${encodeURIComponent(gid)}`, {
+        cache: 'no-store',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      const data = (await res.json()) as {
+        students?: StudentRow[]
+        enrollments?: EnrollmentRow[]
+        error?: string
+      }
+
+      if (!res.ok) throw new Error(data.error || 'Error cargando inscripciones')
+
+      setStudents(data.students ?? [])
+      setEnrollments(data.enrollments ?? [])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error cargando inscripciones')
+    }
+  }, [])
+
   React.useEffect(() => {
     void loadBase()
   }, [loadBase])
@@ -168,7 +211,8 @@ export default function AssignmentsClient() {
     if (!groupId) return
     void loadAssignedSubjects(groupId)
     void loadTeacherAssignments(groupId)
-  }, [groupId, loadAssignedSubjects, loadTeacherAssignments])
+    void loadEnrollments(groupId)
+  }, [groupId, loadAssignedSubjects, loadTeacherAssignments, loadEnrollments])
 
   const selectedGroup = React.useMemo(
     () => groups.find((g) => g.id === groupId) ?? null,
@@ -177,9 +221,7 @@ export default function AssignmentsClient() {
 
   const availableSubjects = React.useMemo(() => {
     if (!selectedGroup) return []
-    return subjects
-      .filter((s) => !assignedIds.includes(s.id))
-      .slice(0, 500)
+    return subjects.filter((s) => !assignedIds.includes(s.id)).slice(0, 500)
   }, [subjects, assignedIds, selectedGroup])
 
   const assignedSubjects = React.useMemo(() => {
@@ -187,8 +229,24 @@ export default function AssignmentsClient() {
     return assignedIds.map((id) => map.get(id)).filter(Boolean) as SubjectRow[]
   }, [subjects, assignedIds])
 
+  const enrolledStudentIds = React.useMemo(
+    () => enrollments.map((e) => e.student_id),
+    [enrollments]
+  )
+
+  const availableStudents = React.useMemo(
+    () => students.filter((s) => !enrolledStudentIds.includes(s.id)),
+    [students, enrolledStudentIds]
+  )
+
+  const enrolledStudents = React.useMemo(() => {
+    const map = new Map(students.map((s) => [s.id, s]))
+    return enrolledStudentIds.map((id) => map.get(id)).filter(Boolean) as StudentRow[]
+  }, [students, enrolledStudentIds])
+
   async function onAddSubject() {
     if (!groupId || !subjectToAdd) return
+
     try {
       const token = await getAccessToken()
       const res = await fetch('/api/admin/groups-subjects', {
@@ -199,8 +257,10 @@ export default function AssignmentsClient() {
         },
         body: JSON.stringify({ groupId, subjectId: subjectToAdd }),
       })
+
       const data = (await res.json()) as { error?: string }
       if (!res.ok) throw new Error(data.error || 'Error asignando materia')
+
       setSubjectToAdd('')
       await loadAssignedSubjects(groupId)
       await loadTeacherAssignments(groupId)
@@ -211,8 +271,10 @@ export default function AssignmentsClient() {
 
   async function onRemoveSubject(subjectId: string) {
     if (!groupId) return
+
     const ok = confirm('¿Quitar esta materia del grupo?')
     if (!ok) return
+
     try {
       const token = await getAccessToken()
       const res = await fetch(
@@ -222,8 +284,10 @@ export default function AssignmentsClient() {
           headers: { Authorization: `Bearer ${token}` },
         }
       )
+
       const data = (await res.json()) as { error?: string }
       if (!res.ok) throw new Error(data.error || 'Error quitando materia')
+
       await loadAssignedSubjects(groupId)
       await loadTeacherAssignments(groupId)
     } catch (e) {
@@ -233,6 +297,7 @@ export default function AssignmentsClient() {
 
   async function onSaveTeacher(subjectId: string) {
     if (!groupId) return
+
     const teacherId = teacherSelectionBySubject[subjectId]
     if (!teacherId) {
       alert('Selecciona un profesor.')
@@ -253,8 +318,10 @@ export default function AssignmentsClient() {
           teacherId,
         }),
       })
+
       const data = (await res.json()) as { error?: string }
       if (!res.ok) throw new Error(data.error || 'Error guardando asignación')
+
       await loadTeacherAssignments(groupId)
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Error guardando asignación')
@@ -263,6 +330,7 @@ export default function AssignmentsClient() {
 
   async function onRemoveTeacher(subjectId: string) {
     if (!groupId) return
+
     const ok = confirm('¿Quitar el profesor asignado a esta materia?')
     if (!ok) return
 
@@ -275,9 +343,12 @@ export default function AssignmentsClient() {
           headers: { Authorization: `Bearer ${token}` },
         }
       )
+
       const data = (await res.json()) as { error?: string }
       if (!res.ok) throw new Error(data.error || 'Error quitando asignación')
+
       await loadTeacherAssignments(groupId)
+
       setTeacherSelectionBySubject((prev) => {
         const next = { ...prev }
         delete next[subjectId]
@@ -288,11 +359,65 @@ export default function AssignmentsClient() {
     }
   }
 
+  async function onEnrollStudent() {
+    if (!groupId || !studentToEnroll) return
+
+    try {
+      const token = await getAccessToken()
+      const res = await fetch('/api/admin/enrollments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          groupId,
+          studentId: studentToEnroll,
+        }),
+      })
+
+      const data = (await res.json()) as { error?: string }
+      if (!res.ok) throw new Error(data.error || 'Error inscribiendo alumno')
+
+      setStudentToEnroll('')
+      await loadEnrollments(groupId)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Error inscribiendo alumno')
+    }
+  }
+
+  async function onRemoveEnrollment(studentId: string) {
+    if (!groupId) return
+
+    const ok = confirm('¿Quitar este alumno del grupo?')
+    if (!ok) return
+
+    try {
+      const token = await getAccessToken()
+      const res = await fetch(
+        `/api/admin/enrollments?groupId=${encodeURIComponent(groupId)}&studentId=${encodeURIComponent(studentId)}`,
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      )
+
+      const data = (await res.json()) as { error?: string }
+      if (!res.ok) throw new Error(data.error || 'Error quitando inscripción')
+
+      await loadEnrollments(groupId)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Error quitando inscripción')
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold">Asignaciones</h1>
-        <p className="text-sm text-muted-foreground">Materias y profesores por grupo.</p>
+        <p className="text-sm text-muted-foreground">
+          Materias, profesores y alumnos por grupo.
+        </p>
       </div>
 
       {error ? (
@@ -467,6 +592,84 @@ export default function AssignmentsClient() {
                         Quitar
                       </button>
                     </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="grid gap-3 rounded-md border p-3">
+        <div className="grid gap-1">
+          <label className="text-sm font-medium">Inscribir alumno</label>
+          <div className="flex gap-2">
+            <select
+              className="h-10 flex-1 rounded-md border bg-background px-3 text-sm"
+              value={studentToEnroll}
+              onChange={(e) => setStudentToEnroll(e.target.value)}
+              disabled={loading || !groupId}
+            >
+              <option value="">Selecciona un alumno</option>
+              {availableStudents.map((student) => (
+                <option key={student.id} value={student.id}>
+                  {studentLabel(student)}
+                </option>
+              ))}
+            </select>
+
+            <button
+              className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              onClick={() => void onEnrollStudent()}
+              disabled={loading || !groupId || !studentToEnroll}
+            >
+              Inscribir
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-md border">
+        <table className="w-full text-sm">
+          <thead className="border-b bg-muted/40">
+            <tr className="text-left">
+              <th className="p-3">Alumnos inscritos</th>
+              <th className="p-3 text-right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td className="p-3 text-muted-foreground" colSpan={2}>
+                  Cargando…
+                </td>
+              </tr>
+            ) : !groupId ? (
+              <tr>
+                <td className="p-3 text-muted-foreground" colSpan={2}>
+                  Selecciona un grupo.
+                </td>
+              </tr>
+            ) : enrolledStudents.length === 0 ? (
+              <tr>
+                <td className="p-3 text-muted-foreground" colSpan={2}>
+                  Este grupo todavía no tiene alumnos inscritos.
+                </td>
+              </tr>
+            ) : (
+              enrolledStudents.map((student) => (
+                <tr key={student.id} className="border-b last:border-b-0">
+                  <td className="p-3">
+                    <div className="font-medium">{student.username ?? '—'}</div>
+                    <div className="text-xs text-muted-foreground">{student.email ?? '—'}</div>
+                  </td>
+                  <td className="p-3 text-right">
+                    <button
+                      className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-500/15"
+                      onClick={() => void onRemoveEnrollment(student.id)}
+                    >
+                      Quitar
+                    </button>
                   </td>
                 </tr>
               ))
