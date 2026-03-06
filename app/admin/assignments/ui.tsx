@@ -1,4 +1,4 @@
-// C:\Users\edgar\Proyectos\plataforma-escolar-cfv\app\admin\assignments\ui.tsx
+// C:\Users\KOGARPC\Proyectos\plataforma-escolar-cfv\app\admin\assignments\ui.tsx
 'use client'
 
 import * as React from 'react'
@@ -17,6 +17,18 @@ type SubjectRow = {
   name: string
   program_id: string
   term_id: string | null
+}
+
+type TeacherRow = {
+  id: string
+  username: string | null
+  email: string | null
+}
+
+type AssignmentRow = {
+  group_id: string
+  subject_id: string
+  teacher_id: string
 }
 
 const supabase = createClient(
@@ -42,6 +54,10 @@ function groupLabel(g: GroupRow) {
   return parts.join(' ')
 }
 
+function teacherLabel(t: TeacherRow) {
+  return t.username ?? t.email ?? 'Profesor'
+}
+
 export default function AssignmentsClient() {
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState('')
@@ -49,6 +65,10 @@ export default function AssignmentsClient() {
   const [groups, setGroups] = React.useState<GroupRow[]>([])
   const [subjects, setSubjects] = React.useState<SubjectRow[]>([])
   const [assignedIds, setAssignedIds] = React.useState<string[]>([])
+
+  const [teachers, setTeachers] = React.useState<TeacherRow[]>([])
+  const [teacherAssignments, setTeacherAssignments] = React.useState<AssignmentRow[]>([])
+  const [teacherSelectionBySubject, setTeacherSelectionBySubject] = React.useState<Record<string, string>>({})
 
   const [groupId, setGroupId] = React.useState<string>('')
   const [subjectToAdd, setSubjectToAdd] = React.useState<string>('')
@@ -74,7 +94,6 @@ export default function AssignmentsClient() {
       setSubjects(data.subjects ?? [])
       setAssignedIds(data.assignedSubjectIds ?? [])
 
-      // Auto-select primer grupo si no hay seleccionado
       if (!groupId && (data.groups?.length ?? 0) > 0) {
         setGroupId(data.groups![0].id)
       }
@@ -85,7 +104,7 @@ export default function AssignmentsClient() {
     }
   }, [groupId])
 
-  const loadAssigned = React.useCallback(async (gid: string) => {
+  const loadAssignedSubjects = React.useCallback(async (gid: string) => {
     setLoading(true)
     setError('')
     try {
@@ -100,14 +119,44 @@ export default function AssignmentsClient() {
         assignedSubjectIds?: string[]
         error?: string
       }
-      if (!res.ok) throw new Error(data.error || 'Error cargando asignaciones')
+      if (!res.ok) throw new Error(data.error || 'Error cargando asignaciones de materias')
       setGroups(data.groups ?? [])
       setSubjects(data.subjects ?? [])
       setAssignedIds(data.assignedSubjectIds ?? [])
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error cargando asignaciones')
+      setError(e instanceof Error ? e.message : 'Error cargando asignaciones de materias')
     } finally {
       setLoading(false)
+    }
+  }, [])
+
+  const loadTeacherAssignments = React.useCallback(async (gid: string) => {
+    try {
+      const token = await getAccessToken()
+      const res = await fetch(`/api/admin/teacher-assignments?groupId=${encodeURIComponent(gid)}`, {
+        cache: 'no-store',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = (await res.json()) as {
+        teachers?: TeacherRow[]
+        assignments?: AssignmentRow[]
+        error?: string
+      }
+      if (!res.ok) throw new Error(data.error || 'Error cargando profesores')
+
+      const teacherList = data.teachers ?? []
+      const assignmentList = data.assignments ?? []
+
+      setTeachers(teacherList)
+      setTeacherAssignments(assignmentList)
+
+      const selectionMap: Record<string, string> = {}
+      for (const assignment of assignmentList) {
+        selectionMap[assignment.subject_id] = assignment.teacher_id
+      }
+      setTeacherSelectionBySubject(selectionMap)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error cargando profesores')
     }
   }, [])
 
@@ -116,8 +165,10 @@ export default function AssignmentsClient() {
   }, [loadBase])
 
   React.useEffect(() => {
-    if (groupId) void loadAssigned(groupId)
-  }, [groupId, loadAssigned])
+    if (!groupId) return
+    void loadAssignedSubjects(groupId)
+    void loadTeacherAssignments(groupId)
+  }, [groupId, loadAssignedSubjects, loadTeacherAssignments])
 
   const selectedGroup = React.useMemo(
     () => groups.find((g) => g.id === groupId) ?? null,
@@ -126,10 +177,6 @@ export default function AssignmentsClient() {
 
   const availableSubjects = React.useMemo(() => {
     if (!selectedGroup) return []
-    // Filtramos por program/term desde el lado de UI como UX (DB también valida con trigger)
-    // Nota: aquí no tenemos program_id y term_id del group en payload, así que no filtramos fuerte;
-    // confiamos en el trigger y mostramos todas para MVP.
-    // Si quieres filtrado perfecto, lo hacemos después devolviendo program_id/term_id del group desde API.
     return subjects
       .filter((s) => !assignedIds.includes(s.id))
       .slice(0, 500)
@@ -140,7 +187,7 @@ export default function AssignmentsClient() {
     return assignedIds.map((id) => map.get(id)).filter(Boolean) as SubjectRow[]
   }, [subjects, assignedIds])
 
-  async function onAdd() {
+  async function onAddSubject() {
     if (!groupId || !subjectToAdd) return
     try {
       const token = await getAccessToken()
@@ -155,13 +202,14 @@ export default function AssignmentsClient() {
       const data = (await res.json()) as { error?: string }
       if (!res.ok) throw new Error(data.error || 'Error asignando materia')
       setSubjectToAdd('')
-      await loadAssigned(groupId)
+      await loadAssignedSubjects(groupId)
+      await loadTeacherAssignments(groupId)
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Error asignando materia')
     }
   }
 
-  async function onRemove(subjectId: string) {
+  async function onRemoveSubject(subjectId: string) {
     if (!groupId) return
     const ok = confirm('¿Quitar esta materia del grupo?')
     if (!ok) return
@@ -176,17 +224,75 @@ export default function AssignmentsClient() {
       )
       const data = (await res.json()) as { error?: string }
       if (!res.ok) throw new Error(data.error || 'Error quitando materia')
-      await loadAssigned(groupId)
+      await loadAssignedSubjects(groupId)
+      await loadTeacherAssignments(groupId)
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Error quitando materia')
     }
   }
 
+  async function onSaveTeacher(subjectId: string) {
+    if (!groupId) return
+    const teacherId = teacherSelectionBySubject[subjectId]
+    if (!teacherId) {
+      alert('Selecciona un profesor.')
+      return
+    }
+
+    try {
+      const token = await getAccessToken()
+      const res = await fetch('/api/admin/teacher-assignments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          groupId,
+          subjectId,
+          teacherId,
+        }),
+      })
+      const data = (await res.json()) as { error?: string }
+      if (!res.ok) throw new Error(data.error || 'Error guardando asignación')
+      await loadTeacherAssignments(groupId)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Error guardando asignación')
+    }
+  }
+
+  async function onRemoveTeacher(subjectId: string) {
+    if (!groupId) return
+    const ok = confirm('¿Quitar el profesor asignado a esta materia?')
+    if (!ok) return
+
+    try {
+      const token = await getAccessToken()
+      const res = await fetch(
+        `/api/admin/teacher-assignments?groupId=${encodeURIComponent(groupId)}&subjectId=${encodeURIComponent(subjectId)}`,
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      )
+      const data = (await res.json()) as { error?: string }
+      if (!res.ok) throw new Error(data.error || 'Error quitando asignación')
+      await loadTeacherAssignments(groupId)
+      setTeacherSelectionBySubject((prev) => {
+        const next = { ...prev }
+        delete next[subjectId]
+        return next
+      })
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Error quitando asignación')
+    }
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold">Asignaciones</h1>
-        <p className="text-sm text-muted-foreground">Materias por grupo (agregar y quitar).</p>
+        <p className="text-sm text-muted-foreground">Materias y profesores por grupo.</p>
       </div>
 
       {error ? (
@@ -213,7 +319,9 @@ export default function AssignmentsClient() {
             ))}
           </select>
         </div>
+      </div>
 
+      <div className="grid gap-3 rounded-md border p-3">
         <div className="grid gap-1">
           <label className="text-sm font-medium">Agregar materia</label>
           <div className="flex gap-2">
@@ -233,14 +341,14 @@ export default function AssignmentsClient() {
 
             <button
               className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-              onClick={() => void onAdd()}
+              onClick={() => void onAddSubject()}
               disabled={loading || !groupId || !subjectToAdd}
             >
               Agregar
             </button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Si eliges una materia de otra carrera/cuatrimestre, la DB la rechazará automáticamente.
+            Si eliges una materia de otra carrera/cuatrimestre, la base de datos la rechazará.
           </p>
         </div>
       </div>
@@ -279,11 +387,86 @@ export default function AssignmentsClient() {
                   <td className="p-3 text-right">
                     <button
                       className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-500/15"
-                      onClick={() => void onRemove(s.id)}
+                      onClick={() => void onRemoveSubject(s.id)}
                       disabled={loading}
                     >
                       Quitar
                     </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="overflow-x-auto rounded-md border">
+        <table className="w-full text-sm">
+          <thead className="border-b bg-muted/40">
+            <tr className="text-left">
+              <th className="p-3">Materia</th>
+              <th className="p-3">Profesor</th>
+              <th className="p-3 text-right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td className="p-3 text-muted-foreground" colSpan={3}>
+                  Cargando…
+                </td>
+              </tr>
+            ) : !groupId ? (
+              <tr>
+                <td className="p-3 text-muted-foreground" colSpan={3}>
+                  Selecciona un grupo.
+                </td>
+              </tr>
+            ) : assignedSubjects.length === 0 ? (
+              <tr>
+                <td className="p-3 text-muted-foreground" colSpan={3}>
+                  Primero asigna materias al grupo.
+                </td>
+              </tr>
+            ) : (
+              assignedSubjects.map((subject) => (
+                <tr key={subject.id} className="border-b last:border-b-0">
+                  <td className="p-3">{subject.name}</td>
+                  <td className="p-3">
+                    <select
+                      className="h-10 min-w-[240px] rounded-md border bg-background px-3 text-sm"
+                      value={teacherSelectionBySubject[subject.id] ?? ''}
+                      onChange={(e) =>
+                        setTeacherSelectionBySubject((prev) => ({
+                          ...prev,
+                          [subject.id]: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Selecciona un profesor</option>
+                      {teachers.map((teacher) => (
+                        <option key={teacher.id} value={teacher.id}>
+                          {teacherLabel(teacher)}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="p-3 text-right">
+                    <div className="inline-flex gap-2">
+                      <button
+                        className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-muted"
+                        onClick={() => void onSaveTeacher(subject.id)}
+                        disabled={!teacherSelectionBySubject[subject.id]}
+                      >
+                        Guardar
+                      </button>
+                      <button
+                        className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-500/15"
+                        onClick={() => void onRemoveTeacher(subject.id)}
+                      >
+                        Quitar
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))

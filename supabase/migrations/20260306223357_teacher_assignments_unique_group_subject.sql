@@ -1,0 +1,6 @@
+alter table public.teacher_assignments
+drop constraint if exists teacher_assignments_group_id_subject_id_key;
+
+alter table public.teacher_assignments
+add constraint teacher_assignments_group_id_subject_id_key
+unique (group_id, subject_id);
