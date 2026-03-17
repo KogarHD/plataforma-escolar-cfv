@@ -1,8 +1,17 @@
-export default function TeacherHome() {
+// C:\Users\KOGARPC\Proyectos\plataforma-escolar-cfv\app\teacher\page.tsx
+import TeacherDashboardClient from './ui'
+
+export default function Page() {
   return (
-    <main className="p-6">
-      <h1 className="text-2xl font-semibold">Maestro</h1>
-      <p className="text-neutral-500 mt-2">Placeholder del portal Maestro.</p>
-    </main>
-  );
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Inicio</h1>
+        <p className="text-sm text-muted-foreground">
+          Resumen general de tu espacio como maestro.
+        </p>
+      </div>
+
+      <TeacherDashboardClient />
+    </div>
+  )
 }
