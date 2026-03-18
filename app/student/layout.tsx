@@ -1,3 +1,4 @@
+// C:\Users\KOGARPC\Proyectos\plataforma-escolar-cfv\app\student\layout.tsx
 import RequireRole from "@/components/RequireRole";
 import AppShell from "@/components/AppShell";
 
@@ -8,7 +9,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
         title="Alumno"
         nav={[
           { label: "Inicio", href: "/student" },
-          { label: "Mis materias", href: "/student/subjects" },
+          { label: "Mi grupo", href: "/student/group" },
           { label: "Tareas", href: "/student/assignments" },
         ]}
       >
