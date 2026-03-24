@@ -1,4 +1,4 @@
-// C:\Users\KOGARPC\Proyectos\plataforma-escolar-cfv\app\teacher\assignments\page.tsx
+// C:\Users\edgar\Proyectos\plataforma-escolar-cfv\app\teacher\assignments\page.tsx
 'use client'
 
 import { createClient } from '@supabase/supabase-js'
@@ -32,6 +32,29 @@ type Task = {
 
 type TasksResponse = {
   tasks: Task[]
+}
+
+type Submission = {
+  id: string
+  task_id: string
+  student_id: string
+  content: string
+  feedback: string
+  submitted_at: string
+  reviewed_at: string | null
+  updated_at: string
+  student_username: string
+}
+
+type TaskSubmissionsResponse = {
+  task: {
+    id: string
+    title: string
+    group_id: string
+    subject_id: string
+  }
+  totalSubmissions: number
+  submissions: Submission[]
 }
 
 type FormState = {
@@ -109,6 +132,19 @@ export default function TeacherAssignmentsPage() {
   const [editError, setEditError] = useState<string | null>(null)
   const [editSubmitting, setEditSubmitting] = useState(false)
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null)
+
+  const [openSubmissionsTaskId, setOpenSubmissionsTaskId] = useState<string | null>(null)
+  const [submissionsLoadingTaskId, setSubmissionsLoadingTaskId] = useState<string | null>(null)
+  const [submissionsError, setSubmissionsError] = useState<string | null>(null)
+  const [submissionsByTask, setSubmissionsByTask] = useState<
+    Record<string, TaskSubmissionsResponse>
+  >({})
+
+  const [reviewingSubmissionId, setReviewingSubmissionId] = useState<string | null>(null)
+  const [reviewSubmittingId, setReviewSubmittingId] = useState<string | null>(null)
+  const [reviewFeedback, setReviewFeedback] = useState('')
+  const [reviewError, setReviewError] = useState<string | null>(null)
+  const [reviewSuccess, setReviewSuccess] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -389,10 +425,154 @@ export default function TeacherAssignmentsPage() {
       if (editingTaskId === taskId) {
         cancelEditing()
       }
+
+      setSubmissionsByTask((prev) => {
+        const next = { ...prev }
+        delete next[taskId]
+        return next
+      })
+
+      if (openSubmissionsTaskId === taskId) {
+        setOpenSubmissionsTaskId(null)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido')
     } finally {
       setDeletingTaskId(null)
+    }
+  }
+
+  async function toggleSubmissions(taskId: string) {
+    if (openSubmissionsTaskId === taskId) {
+      setOpenSubmissionsTaskId(null)
+      setSubmissionsError(null)
+      setReviewingSubmissionId(null)
+      setReviewError(null)
+      setReviewSuccess(null)
+      return
+    }
+
+    setOpenSubmissionsTaskId(taskId)
+    setSubmissionsError(null)
+    setReviewingSubmissionId(null)
+    setReviewError(null)
+    setReviewSuccess(null)
+
+    if (submissionsByTask[taskId]) {
+      return
+    }
+
+    try {
+      setSubmissionsLoadingTaskId(taskId)
+
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession()
+
+      if (sessionError || !session?.access_token) {
+        throw new Error('No autenticado')
+      }
+
+      const response = await fetch(`/api/teacher/tasks/${taskId}/submissions`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        cache: 'no-store',
+      })
+
+      const body = (await response.json().catch(() => null)) as
+        | ({ error?: string } & Partial<TaskSubmissionsResponse>)
+        | null
+
+      if (!response.ok) {
+        throw new Error(body?.error || 'No se pudieron cargar las entregas')
+      }
+
+      setSubmissionsByTask((prev) => ({
+        ...prev,
+        [taskId]: body as TaskSubmissionsResponse,
+      }))
+    } catch (err) {
+      setSubmissionsError(err instanceof Error ? err.message : 'Error desconocido')
+    } finally {
+      setSubmissionsLoadingTaskId(null)
+    }
+  }
+
+  function startReview(submission: Submission) {
+    setReviewingSubmissionId(submission.id)
+    setReviewFeedback(submission.feedback ?? '')
+    setReviewError(null)
+    setReviewSuccess(null)
+  }
+
+  function cancelReview() {
+    setReviewingSubmissionId(null)
+    setReviewFeedback('')
+    setReviewError(null)
+    setReviewSuccess(null)
+  }
+
+  async function handleReviewSubmission(taskId: string, submissionId: string) {
+    try {
+      setReviewSubmittingId(submissionId)
+      setReviewError(null)
+      setReviewSuccess(null)
+
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession()
+
+      if (sessionError || !session?.access_token) {
+        throw new Error('No autenticado')
+      }
+
+      const response = await fetch(`/api/teacher/submissions/${submissionId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          feedback: reviewFeedback,
+        }),
+      })
+
+      const body = (await response.json().catch(() => null)) as
+        | { error?: string; submission?: Submission }
+        | null
+
+      if (!response.ok || !body?.submission) {
+        throw new Error(body?.error || 'No se pudo guardar la revisión')
+      }
+
+      setSubmissionsByTask((prev) => {
+        const current = prev[taskId]
+        if (!current) return prev
+
+        return {
+          ...prev,
+          [taskId]: {
+            ...current,
+            submissions: current.submissions.map((submission) =>
+              submission.id === submissionId
+                ? (body.submission as Submission)
+                : submission
+            ),
+          },
+        }
+      })
+
+      setReviewSuccess('Revisión guardada correctamente.')
+      setReviewingSubmissionId(submissionId)
+      setReviewFeedback(body.submission.feedback)
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : 'Error desconocido')
+    } finally {
+      setReviewSubmittingId(null)
     }
   }
 
@@ -401,7 +581,7 @@ export default function TeacherAssignmentsPage() {
       <div>
         <h1 className="text-2xl font-semibold">Tareas</h1>
         <p className="text-sm text-muted-foreground">
-          Crea tareas para tus grupos y consulta las que ya registraste.
+          Crea tareas para tus grupos, consulta las que ya registraste y revisa las entregas de tus alumnos.
         </p>
       </div>
 
@@ -565,6 +745,9 @@ export default function TeacherAssignmentsPage() {
                 {tasks.map((task) => {
                   const isEditing = editingTaskId === task.id
                   const isDeleting = deletingTaskId === task.id
+                  const submissionsData = submissionsByTask[task.id]
+                  const isOpen = openSubmissionsTaskId === task.id
+                  const isSubmissionsLoading = submissionsLoadingTaskId === task.id
 
                   return (
                     <div key={task.id} className="rounded-lg border p-4">
@@ -608,7 +791,172 @@ export default function TeacherAssignmentsPage() {
                             >
                               {isDeleting ? 'Eliminando...' : 'Eliminar'}
                             </button>
+
+                            <button
+                              type="button"
+                              className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+                              onClick={() => toggleSubmissions(task.id)}
+                            >
+                              {isOpen ? 'Ocultar entregas' : 'Ver entregas'}
+                            </button>
                           </div>
+
+                          {isOpen ? (
+                            <div className="mt-4 rounded-lg border p-4">
+                              <div className="flex items-center justify-between gap-4">
+                                <h4 className="text-sm font-semibold">Entregas</h4>
+
+                                {submissionsData ? (
+                                  <span className="text-xs text-muted-foreground">
+                                    {submissionsData.totalSubmissions} entrega{submissionsData.totalSubmissions === 1 ? '' : 's'}
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              {isSubmissionsLoading ? (
+                                <p className="mt-3 text-sm text-muted-foreground">
+                                  Cargando entregas...
+                                </p>
+                              ) : submissionsError ? (
+                                <p className="mt-3 text-sm text-red-600">
+                                  {submissionsError}
+                                </p>
+                              ) : !submissionsData || submissionsData.submissions.length === 0 ? (
+                                <p className="mt-3 text-sm text-muted-foreground">
+                                  Todavía no hay entregas para esta tarea.
+                                </p>
+                              ) : (
+                                <div className="mt-4 space-y-3">
+                                  {submissionsData.submissions.map((submission) => {
+                                    const isReviewing =
+                                      reviewingSubmissionId === submission.id
+                                    const isSavingReview =
+                                      reviewSubmittingId === submission.id
+
+                                    return (
+                                      <div
+                                        key={submission.id}
+                                        className="rounded-md border p-3"
+                                      >
+                                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                                          <div>
+                                            <div className="flex flex-wrap items-center gap-2">
+                                              <p className="text-sm font-medium">
+                                                @{submission.student_username}
+                                              </p>
+
+                                              <span className="rounded-full border px-2 py-0.5 text-xs">
+                                                {submission.reviewed_at
+                                                  ? 'Revisada'
+                                                  : 'Sin revisar'}
+                                              </span>
+                                            </div>
+
+                                            <p className="text-xs text-muted-foreground">
+                                              Entregada: {formatDateTime(submission.submitted_at)}
+                                            </p>
+                                          </div>
+
+                                          <p className="text-xs text-muted-foreground">
+                                            Actualizada: {formatDateTime(submission.updated_at)}
+                                          </p>
+                                        </div>
+
+                                        <p className="mt-3 text-sm">
+                                          {submission.content}
+                                        </p>
+
+                                        {!isReviewing ? (
+                                          <>
+                                            <div className="mt-4 rounded-lg border p-3">
+                                              <p className="text-sm font-medium">Feedback</p>
+                                              <p className="mt-2 text-sm text-muted-foreground">
+                                                {submission.feedback || 'Sin feedback todavía.'}
+                                              </p>
+
+                                              {submission.reviewed_at ? (
+                                                <p className="mt-2 text-xs text-muted-foreground">
+                                                  Revisada: {formatDateTime(submission.reviewed_at)}
+                                                </p>
+                                              ) : null}
+                                            </div>
+
+                                            <div className="mt-3">
+                                              <button
+                                                type="button"
+                                                className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+                                                onClick={() => startReview(submission)}
+                                              >
+                                                {submission.reviewed_at
+                                                  ? 'Editar revisión'
+                                                  : 'Revisar entrega'}
+                                              </button>
+                                            </div>
+                                          </>
+                                        ) : (
+                                          <div className="mt-4 rounded-lg border p-3">
+                                            <div className="space-y-2">
+                                              <label className="text-sm font-medium">
+                                                Feedback
+                                              </label>
+
+                                              <textarea
+                                                className="min-h-[120px] w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                                placeholder="Escribe aquí observaciones o retroalimentación para el alumno."
+                                                value={reviewFeedback}
+                                                onChange={(event) =>
+                                                  setReviewFeedback(event.target.value)
+                                                }
+                                              />
+                                            </div>
+
+                                            {reviewError ? (
+                                              <p className="mt-3 text-sm text-red-600">
+                                                {reviewError}
+                                              </p>
+                                            ) : null}
+
+                                            {reviewSuccess ? (
+                                              <p className="mt-3 text-sm text-green-600">
+                                                {reviewSuccess}
+                                              </p>
+                                            ) : null}
+
+                                            <div className="mt-4 flex flex-wrap gap-2">
+                                              <button
+                                                type="button"
+                                                className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+                                                onClick={() =>
+                                                  handleReviewSubmission(
+                                                    task.id,
+                                                    submission.id
+                                                  )
+                                                }
+                                                disabled={isSavingReview}
+                                              >
+                                                {isSavingReview
+                                                  ? 'Guardando...'
+                                                  : 'Guardar revisión'}
+                                              </button>
+
+                                              <button
+                                                type="button"
+                                                className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+                                                onClick={cancelReview}
+                                                disabled={isSavingReview}
+                                              >
+                                                Cancelar
+                                              </button>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
                         </>
                       ) : (
                         <form

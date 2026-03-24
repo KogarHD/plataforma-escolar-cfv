@@ -177,3 +177,119 @@ export async function deleteTeacherTask(
 
   return { ok: true as const }
 }
+export async function listTeacherTaskSubmissions(
+  supabase: AppSupabase,
+  teacherId: string,
+  taskId: string
+) {
+  const { data: task, error: taskError } = await supabase
+    .from('tasks')
+    .select('id, teacher_id, group_id, subject_id, title')
+    .eq('id', taskId)
+    .eq('teacher_id', teacherId)
+    .maybeSingle()
+
+  if (taskError) throw taskError
+  if (!task) throw new Error('NOT_FOUND')
+
+  const { data: submissions, error: submissionsError } = await supabase
+    .from('task_submissions')
+    .select(
+      'id, task_id, student_id, content, feedback, submitted_at, reviewed_at, updated_at'
+    )
+    .eq('task_id', taskId)
+    .order('submitted_at', { ascending: false })
+
+  if (submissionsError) throw submissionsError
+
+  const studentIds = [...new Set((submissions ?? []).map((item) => item.student_id))]
+
+  const { data: students, error: studentsError } =
+    studentIds.length > 0
+      ? await supabase
+          .from('profiles')
+          .select('id, username, role')
+          .in('id', studentIds)
+          .eq('role', 'student')
+          .order('username', { ascending: true })
+      : { data: [], error: null }
+
+  if (studentsError) throw studentsError
+
+  const studentsMap = new Map(
+    (students ?? []).map((student) => [student.id, student.username])
+  )
+
+  return {
+    task: {
+      id: task.id,
+      title: task.title,
+      group_id: task.group_id,
+      subject_id: task.subject_id,
+    },
+    totalSubmissions: (submissions ?? []).length,
+    submissions: (submissions ?? []).map((submission) => ({
+      ...submission,
+      student_username:
+        studentsMap.get(submission.student_id) ?? submission.student_id,
+    })),
+  }
+}
+export async function reviewTeacherSubmission(
+  supabase: AppSupabase,
+  teacherId: string,
+  submissionId: string,
+  input: {
+    feedback: string
+  }
+) {
+  const { data: submission, error: submissionError } = await supabase
+    .from('task_submissions')
+    .select('id, task_id, student_id, content, feedback, submitted_at, reviewed_at, updated_at')
+    .eq('id', submissionId)
+    .maybeSingle()
+
+  if (submissionError) throw submissionError
+  if (!submission) throw new Error('NOT_FOUND')
+
+  const { data: task, error: taskError } = await supabase
+    .from('tasks')
+    .select('id, teacher_id')
+    .eq('id', submission.task_id)
+    .eq('teacher_id', teacherId)
+    .maybeSingle()
+
+  if (taskError) throw taskError
+  if (!task) throw new Error('NOT_FOUND')
+
+  const payload = {
+    feedback: input.feedback.trim(),
+    reviewed_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }
+
+  const { data, error } = await supabase
+    .from('task_submissions')
+    .update(payload)
+    .eq('id', submissionId)
+    .select(
+      'id, task_id, student_id, content, feedback, submitted_at, reviewed_at, updated_at'
+    )
+    .single()
+
+  if (error) throw error
+
+  const { data: student, error: studentError } = await supabase
+    .from('profiles')
+    .select('id, username, role')
+    .eq('id', data.student_id)
+    .eq('role', 'student')
+    .maybeSingle()
+
+  if (studentError) throw studentError
+
+  return {
+    ...data,
+    student_username: student?.username ?? data.student_id,
+  }
+}

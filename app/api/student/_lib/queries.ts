@@ -227,10 +227,47 @@ export async function getStudentTasks(
 
   if (tasksError) throw tasksError
 
-  const normalizedTasks = (tasks ?? []).map((task) => ({
-    ...task,
-    subject_name: subjectNameMap.get(task.subject_id) ?? task.subject_id,
-  }))
+  const taskIds = unique((tasks ?? []).map((task) => task.id))
+
+  const { data: submissions, error: submissionsError } =
+    taskIds.length > 0
+      ? await supabase
+          .from('task_submissions')
+          .select(
+            'id, task_id, student_id, content, feedback, submitted_at, reviewed_at, updated_at'
+          )
+          .eq('student_id', studentId)
+          .in('task_id', taskIds)
+      : { data: [], error: null }
+
+  if (submissionsError) throw submissionsError
+
+  const submissionsMap = new Map(
+    (submissions ?? []).map((submission) => [submission.task_id, submission])
+  )
+
+  const normalizedTasks = (tasks ?? []).map((task) => {
+    const submission = submissionsMap.get(task.id)
+
+    return {
+      ...task,
+      subject_name: subjectNameMap.get(task.subject_id) ?? task.subject_id,
+      submission: submission
+        ? {
+            id: submission.id,
+            task_id: submission.task_id,
+            student_id: submission.student_id,
+            content: submission.content,
+            feedback: submission.feedback,
+            submitted_at: submission.submitted_at,
+            reviewed_at: submission.reviewed_at,
+            updated_at: submission.updated_at,
+          }
+        : null,
+      is_submitted: Boolean(submission),
+      is_reviewed: Boolean(submission?.reviewed_at),
+    }
+  })
 
   return {
     group: group
