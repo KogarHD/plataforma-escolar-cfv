@@ -195,7 +195,7 @@ export async function listTeacherTaskSubmissions(
   const { data: submissions, error: submissionsError } = await supabase
     .from('task_submissions')
     .select(
-      'id, task_id, student_id, content, feedback, submitted_at, reviewed_at, updated_at'
+      'id, task_id, student_id, content, feedback, grade, submitted_at, reviewed_at, graded_at, updated_at'
     )
     .eq('task_id', taskId)
     .order('submitted_at', { ascending: false })
@@ -241,11 +241,14 @@ export async function reviewTeacherSubmission(
   submissionId: string,
   input: {
     feedback: string
+    grade: number | null
   }
 ) {
   const { data: submission, error: submissionError } = await supabase
     .from('task_submissions')
-    .select('id, task_id, student_id, content, feedback, submitted_at, reviewed_at, updated_at')
+    .select(
+      'id, task_id, student_id, content, feedback, grade, submitted_at, reviewed_at, graded_at, updated_at'
+    )
     .eq('id', submissionId)
     .maybeSingle()
 
@@ -262,10 +265,14 @@ export async function reviewTeacherSubmission(
   if (taskError) throw taskError
   if (!task) throw new Error('NOT_FOUND')
 
+  const now = new Date().toISOString()
+
   const payload = {
     feedback: input.feedback.trim(),
-    reviewed_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    grade: input.grade,
+    reviewed_at: now,
+    graded_at: input.grade !== null ? now : null,
+    updated_at: now,
   }
 
   const { data, error } = await supabase
@@ -273,7 +280,7 @@ export async function reviewTeacherSubmission(
     .update(payload)
     .eq('id', submissionId)
     .select(
-      'id, task_id, student_id, content, feedback, submitted_at, reviewed_at, updated_at'
+      'id, task_id, student_id, content, feedback, grade, submitted_at, reviewed_at, graded_at, updated_at'
     )
     .single()
 

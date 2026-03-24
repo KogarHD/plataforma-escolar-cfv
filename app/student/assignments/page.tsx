@@ -10,8 +10,10 @@ type Submission = {
   student_id: string
   content: string
   feedback: string
+  grade: number | null
   submitted_at: string
   reviewed_at: string | null
+  graded_at: string | null
   updated_at: string
 }
 
@@ -27,6 +29,7 @@ type Task = {
   submission: Submission | null
   is_submitted: boolean
   is_reviewed: boolean
+  is_graded: boolean
 }
 
 type StudentTasksResponse = {
@@ -304,6 +307,9 @@ export default function StudentAssignmentsPage() {
                             <span className="rounded-full border px-2 py-0.5 text-xs">
                               {task.is_reviewed ? 'Revisada' : 'Sin revisar'}
                             </span>
+                            <span className="rounded-full border px-2 py-0.5 text-xs">
+  {task.is_graded ? 'Calificada' : 'Sin calificar'}
+</span>
                           </div>
 
                           <p className="mt-1 text-sm text-muted-foreground">
@@ -332,17 +338,28 @@ export default function StudentAssignmentsPage() {
 
                       {task.submission ? (
                         <div className="mt-4 rounded-lg border p-3">
-                          <p className="text-sm font-medium">Feedback del maestro</p>
-                          <p className="mt-2 text-sm text-muted-foreground">
-                            {task.submission.feedback || 'Todavía no hay retroalimentación.'}
-                          </p>
+  <p className="text-sm font-medium">Calificación</p>
+  <p className="mt-2 text-sm text-muted-foreground">
+    {task.submission.grade === null ? 'Todavía no hay calificación.' : task.submission.grade}
+  </p>
 
-                          {task.submission.reviewed_at ? (
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              Revisada: {formatDateTime(task.submission.reviewed_at)}
-                            </p>
-                          ) : null}
-                        </div>
+  {task.submission.graded_at ? (
+    <p className="mt-2 text-xs text-muted-foreground">
+      Calificada: {formatDateTime(task.submission.graded_at)}
+    </p>
+  ) : null}
+
+  <p className="mt-4 text-sm font-medium">Feedback del maestro</p>
+  <p className="mt-2 text-sm text-muted-foreground">
+    {task.submission.feedback || 'Todavía no hay retroalimentación.'}
+  </p>
+
+  {task.submission.reviewed_at ? (
+    <p className="mt-2 text-xs text-muted-foreground">
+      Revisada: {formatDateTime(task.submission.reviewed_at)}
+    </p>
+  ) : null}
+</div>
                       ) : null}
 
                       {!isActive ? (

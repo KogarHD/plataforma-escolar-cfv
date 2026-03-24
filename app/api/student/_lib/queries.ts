@@ -234,7 +234,7 @@ export async function getStudentTasks(
       ? await supabase
           .from('task_submissions')
           .select(
-            'id, task_id, student_id, content, feedback, submitted_at, reviewed_at, updated_at'
+            'id, task_id, student_id, content, feedback, grade, submitted_at, reviewed_at, graded_at, updated_at'
           )
           .eq('student_id', studentId)
           .in('task_id', taskIds)
@@ -259,13 +259,16 @@ export async function getStudentTasks(
             student_id: submission.student_id,
             content: submission.content,
             feedback: submission.feedback,
+            grade: submission.grade,
             submitted_at: submission.submitted_at,
             reviewed_at: submission.reviewed_at,
+            graded_at: submission.graded_at,
             updated_at: submission.updated_at,
           }
         : null,
       is_submitted: Boolean(submission),
       is_reviewed: Boolean(submission?.reviewed_at),
+      is_graded: submission?.grade !== null && submission?.grade !== undefined,
     }
   })
 
