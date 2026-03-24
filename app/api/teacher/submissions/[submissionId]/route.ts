@@ -1,4 +1,3 @@
-// C:\Users\edgar\Proyectos\plataforma-escolar-cfv\app\api\teacher\submissions\[submissionId]\route.ts
 import { NextResponse } from 'next/server'
 import { requireTeacher, supabaseUser } from '@/app/api/teacher/_lib/auth'
 import { reviewTeacherSubmission } from '@/app/api/teacher/_lib/tasks'
@@ -11,6 +10,7 @@ type Context = {
 
 type ReviewBody = {
   feedback?: string
+  grade?: number | null
 }
 
 function getErrorMessage(error: unknown) {
@@ -51,6 +51,17 @@ export async function PATCH(req: Request, context: Context) {
 
   const body = (await req.json()) as ReviewBody
   const feedback = body.feedback ?? ''
+const grade =
+  body.grade === null || body.grade === undefined
+    ? null
+    : Number(body.grade)
+
+  if (grade !== null && (Number.isNaN(grade) || grade < 0 || grade > 100)) {
+    return NextResponse.json(
+      { error: 'La calificación debe estar entre 0 y 100' },
+      { status: 400 }
+    )
+  }
 
   const supabase = supabaseUser(gate.token)
 
@@ -59,7 +70,7 @@ export async function PATCH(req: Request, context: Context) {
       supabase,
       gate.teacher.id,
       submissionId,
-      { feedback }
+      { feedback, grade }
     )
 
     return NextResponse.json({ submission })

@@ -40,8 +40,10 @@ type Submission = {
   student_id: string
   content: string
   feedback: string
+  grade: number | null
   submitted_at: string
   reviewed_at: string | null
+  graded_at: string | null
   updated_at: string
   student_username: string
 }
@@ -145,6 +147,7 @@ export default function TeacherAssignmentsPage() {
   const [reviewFeedback, setReviewFeedback] = useState('')
   const [reviewError, setReviewError] = useState<string | null>(null)
   const [reviewSuccess, setReviewSuccess] = useState<string | null>(null)
+  const [reviewGrade, setReviewGrade] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -502,80 +505,102 @@ export default function TeacherAssignmentsPage() {
   }
 
   function startReview(submission: Submission) {
-    setReviewingSubmissionId(submission.id)
-    setReviewFeedback(submission.feedback ?? '')
-    setReviewError(null)
-    setReviewSuccess(null)
-  }
+  setReviewingSubmissionId(submission.id)
+  setReviewFeedback(submission.feedback ?? '')
+  setReviewGrade(
+    submission.grade === null || submission.grade === undefined
+      ? ''
+      : String(submission.grade)
+  )
+  setReviewError(null)
+  setReviewSuccess(null)
+}
 
   function cancelReview() {
-    setReviewingSubmissionId(null)
-    setReviewFeedback('')
-    setReviewError(null)
-    setReviewSuccess(null)
-  }
+  setReviewingSubmissionId(null)
+  setReviewFeedback('')
+  setReviewGrade('')
+  setReviewError(null)
+  setReviewSuccess(null)
+}
 
   async function handleReviewSubmission(taskId: string, submissionId: string) {
-    try {
-      setReviewSubmittingId(submissionId)
-      setReviewError(null)
-      setReviewSuccess(null)
+  try {
+    setReviewSubmittingId(submissionId)
+    setReviewError(null)
+    setReviewSuccess(null)
 
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession()
+    const normalizedGrade =
+      reviewGrade.trim() === '' ? null : Number(reviewGrade.trim())
 
-      if (sessionError || !session?.access_token) {
-        throw new Error('No autenticado')
-      }
-
-      const response = await fetch(`/api/teacher/submissions/${submissionId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          feedback: reviewFeedback,
-        }),
-      })
-
-      const body = (await response.json().catch(() => null)) as
-        | { error?: string; submission?: Submission }
-        | null
-
-      if (!response.ok || !body?.submission) {
-        throw new Error(body?.error || 'No se pudo guardar la revisión')
-      }
-
-      setSubmissionsByTask((prev) => {
-        const current = prev[taskId]
-        if (!current) return prev
-
-        return {
-          ...prev,
-          [taskId]: {
-            ...current,
-            submissions: current.submissions.map((submission) =>
-              submission.id === submissionId
-                ? (body.submission as Submission)
-                : submission
-            ),
-          },
-        }
-      })
-
-      setReviewSuccess('Revisión guardada correctamente.')
-      setReviewingSubmissionId(submissionId)
-      setReviewFeedback(body.submission.feedback)
-    } catch (err) {
-      setReviewError(err instanceof Error ? err.message : 'Error desconocido')
-    } finally {
-      setReviewSubmittingId(null)
+    if (
+      normalizedGrade !== null &&
+      (Number.isNaN(normalizedGrade) || normalizedGrade < 0 || normalizedGrade > 100)
+    ) {
+      setReviewError('La calificación debe estar entre 0 y 100.')
+      return
     }
-  }
 
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession()
+
+    if (sessionError || !session?.access_token) {
+      throw new Error('No autenticado')
+    }
+
+    const response = await fetch(`/api/teacher/submissions/${submissionId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        feedback: reviewFeedback,
+        grade: normalizedGrade,
+      }),
+    })
+
+    const body = (await response.json().catch(() => null)) as
+      | { error?: string; submission?: Submission }
+      | null
+
+    if (!response.ok || !body?.submission) {
+      throw new Error(body?.error || 'No se pudo guardar la revisión')
+    }
+
+    setSubmissionsByTask((prev) => {
+      const current = prev[taskId]
+      if (!current) return prev
+
+      return {
+        ...prev,
+        [taskId]: {
+          ...current,
+          submissions: current.submissions.map((submission) =>
+            submission.id === submissionId
+              ? (body.submission as Submission)
+              : submission
+          ),
+        },
+      }
+    })
+
+    setReviewSuccess('Revisión guardada correctamente.')
+    setReviewingSubmissionId(submissionId)
+    setReviewFeedback(body.submission.feedback)
+    setReviewGrade(
+      body.submission.grade === null || body.submission.grade === undefined
+        ? ''
+        : String(body.submission.grade)
+    )
+  } catch (err) {
+    setReviewError(err instanceof Error ? err.message : 'Error desconocido')
+  } finally {
+    setReviewSubmittingId(null)
+  }
+}
   return (
     <div className="space-y-6">
       <div>
@@ -869,17 +894,28 @@ export default function TeacherAssignmentsPage() {
                                         {!isReviewing ? (
                                           <>
                                             <div className="mt-4 rounded-lg border p-3">
-                                              <p className="text-sm font-medium">Feedback</p>
-                                              <p className="mt-2 text-sm text-muted-foreground">
-                                                {submission.feedback || 'Sin feedback todavía.'}
-                                              </p>
+  <p className="text-sm font-medium">Calificación</p>
+  <p className="mt-2 text-sm text-muted-foreground">
+    {submission.grade === null ? 'Sin calificar todavía.' : submission.grade}
+  </p>
 
-                                              {submission.reviewed_at ? (
-                                                <p className="mt-2 text-xs text-muted-foreground">
-                                                  Revisada: {formatDateTime(submission.reviewed_at)}
-                                                </p>
-                                              ) : null}
-                                            </div>
+  {submission.graded_at ? (
+    <p className="mt-2 text-xs text-muted-foreground">
+      Calificada: {formatDateTime(submission.graded_at)}
+    </p>
+  ) : null}
+
+  <p className="mt-4 text-sm font-medium">Feedback</p>
+  <p className="mt-2 text-sm text-muted-foreground">
+    {submission.feedback || 'Sin feedback todavía.'}
+  </p>
+
+  {submission.reviewed_at ? (
+    <p className="mt-2 text-xs text-muted-foreground">
+      Revisada: {formatDateTime(submission.reviewed_at)}
+    </p>
+  ) : null}
+</div>
 
                                             <div className="mt-3">
                                               <button
@@ -895,20 +931,35 @@ export default function TeacherAssignmentsPage() {
                                           </>
                                         ) : (
                                           <div className="mt-4 rounded-lg border p-3">
-                                            <div className="space-y-2">
-                                              <label className="text-sm font-medium">
-                                                Feedback
-                                              </label>
+                                            <div className="space-y-2 md:max-w-xs">
+  <label className="text-sm font-medium">Calificación</label>
 
-                                              <textarea
-                                                className="min-h-[120px] w-full rounded-md border bg-background px-3 py-2 text-sm"
-                                                placeholder="Escribe aquí observaciones o retroalimentación para el alumno."
-                                                value={reviewFeedback}
-                                                onChange={(event) =>
-                                                  setReviewFeedback(event.target.value)
-                                                }
-                                              />
-                                            </div>
+  <input
+    type="number"
+    min="0"
+    max="100"
+    step="0.01"
+    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+    placeholder="Ej. 95"
+    value={reviewGrade}
+    onChange={(event) => setReviewGrade(event.target.value)}
+  />
+</div>
+
+<div className="space-y-2">
+  <label className="text-sm font-medium">
+    Feedback
+  </label>
+
+  <textarea
+    className="min-h-[120px] w-full rounded-md border bg-background px-3 py-2 text-sm"
+    placeholder="Escribe aquí observaciones o retroalimentación para el alumno."
+    value={reviewFeedback}
+    onChange={(event) =>
+      setReviewFeedback(event.target.value)
+    }
+  />
+</div>
 
                                             {reviewError ? (
                                               <p className="mt-3 text-sm text-red-600">
